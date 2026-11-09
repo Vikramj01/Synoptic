@@ -19,7 +19,7 @@ Open http://localhost:3000. By default a deterministic mock provider is used so 
 `src/lib/providers/` holds engine providers behind one `EngineProvider` interface.
 
 - `mock` (default): fake answers for development.
-- `queryingai`: adapter for [querying.ai](https://querying.ai/en). **Not implemented yet**: the request/response mapping needs the API docs. Set `PROVIDER=queryingai`, `QUERYINGAI_API_KEY`, `QUERYINGAI_BASE_URL` once implemented.
+- `queryingai`: adapter for the [querying.ai async task API](https://docs.querying.ai). Set `PROVIDER=queryingai` and `QUERYING_API_KEY` (from https://querying.ai/dashboard/keys) in `.env`. Engines: ChatGPT, Gemini, Perplexity, Copilot, Google AI Overviews, Google AI Mode, Meta AI. Each prompt x engine costs 1-1.25 credits.
 
 ## Layout
 

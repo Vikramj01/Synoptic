@@ -1,6 +1,21 @@
-export type Engine = "chatgpt" | "gemini" | "perplexity" | "claude" | "copilot" | "google_ai_overviews";
+export type Engine =
+  | "chatgpt"
+  | "gemini"
+  | "perplexity"
+  | "copilot"
+  | "google_ai_overviews"
+  | "google_ai_mode"
+  | "meta_ai";
 
-export const ENGINES: Engine[] = ["chatgpt", "gemini", "perplexity", "claude", "copilot", "google_ai_overviews"];
+export const ENGINES: Engine[] = [
+  "chatgpt",
+  "gemini",
+  "perplexity",
+  "copilot",
+  "google_ai_overviews",
+  "google_ai_mode",
+  "meta_ai",
+];
 
 export interface Citation {
   url: string;
