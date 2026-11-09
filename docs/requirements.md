@@ -1,6 +1,6 @@
 # Synoptic: System Requirements
 
-Status: draft v0.1 · Owner: Vikram · Stack: Next.js (Vercel) + Supabase (Postgres/Auth) + querying.ai
+Status: draft v0.2 · Owner: Vikram · Stack: Next.js (Vercel) + Supabase (Postgres/Auth) + querying.ai
 
 ## 1. Purpose
 
@@ -12,9 +12,9 @@ Synoptic monitors how a client's brand and website appear in answers from AI eng
 | - | - |
 | **Operator (agency admin)** | Owns the account. Creates workspaces for clients, manages prompts, schedules, budgets and users. |
 | **Analyst** | Operator staff. Can edit projects and run scans for assigned clients. |
-| **Client viewer** | Read-only access to their own workspace's dashboards (and optionally shared reports). |
+| **Client viewer** | **View only.** Read-only access to their own workspace's dashboards. Cannot edit prompts, schedules, projects or run scans. |
 
-Tenancy model: one **agency account** contains many **client workspaces**, each with one or more **projects** (a brand + domain).
+Tenancy model: one **agency account** contains many **client workspaces**, each with one or more **projects** (a brand + domain). A project is monitored in one or more **markets** (a country).
 
 ## 3. Scope
 
@@ -27,7 +27,7 @@ Tenancy model: one **agency account** contains many **client workspaces**, each 
 Competitor share-of-voice benchmarking (competitor names are captured in the MVP data model but only lightly used), alerts (email/Slack), PDF/CSV reports and white-label sharing, prompt suggestions (querying.ai Prompt Research), billing for clients, sentiment scoring.
 
 ### Out of scope
-Building or hosting our own AI-engine scrapers (querying.ai provides them); SEO rank tracking; content generation.
+White-label / custom branding (every page carries Vimi branding); non-English prompts and UI in the MVP; client-side billing; building or hosting our own AI-engine scrapers (querying.ai provides them); SEO rank tracking; content generation.
 
 ## 4. Functional requirements
 
@@ -37,22 +37,24 @@ IDs: **M** = MVP, **L** = later.
 - **FR-1 (M)** Email/password or magic-link login (Supabase Auth); Google SSO optional.
 - **FR-2 (M)** Agency account with invite flow for staff and client viewers.
 - **FR-3 (M)** Create/edit/archive client workspaces and projects (brand name, domain, aliases, country).
-- **FR-4 (M)** Role-based access; a client viewer sees only their workspace. Enforced in the database (RLS), not just the UI.
+- **FR-4 (M)** Role-based access; a client viewer sees only their workspace and has read-only permission. Enforced in the database (RLS), not just the UI.
+- **FR-4a (M)** All pages, including client-facing dashboards and any exports, carry **Vimi branding** (logo, colours, name). Branding is a single theme module so it can be updated in one place.
 
 ### 4.2 Project and prompt setup
 - **FR-5 (M)** Define brand name plus aliases/misspellings and one or more domains (including subdomains) per project.
 - **FR-6 (M)** Manage a prompt library per project: add, edit, bulk import (CSV/paste), tag, activate/pause.
 - **FR-7 (M)** Select engines per project from the engines querying.ai supports: ChatGPT, Gemini, Perplexity, Copilot, Google AI Overviews, Google AI Mode, Meta AI (more later).
-- **FR-8 (M)** Select country/locale per project (default US; some engines reject some countries).
+- **FR-8 (M)** **Markets:** a project can be monitored in multiple countries. Each market has its own prompt activation and results. MVP launch regions: **GCC** (AE, SA, QA, KW, BH, OM) and **Southeast Asia** (SG, MY, TH, ID, PH, VN), plus US as a baseline. Country is sent to querying.ai per task (ISO code); the country list is configuration, not code.
+- **FR-8a (M)** **English only in the MVP** for prompts, answers analysed and UI. Data model and UI must be i18n-ready (UTF-8 everywhere, RTL-capable layout, brand aliases in other scripts such as Arabic or Thai) so local languages can be added later without migration.
 - **FR-9 (M)** Track competitors (names/domains) per project.
 
 ### 4.3 Scanning and scheduling
-- **FR-10 (M)** Schedules per project: daily, weekly, or manual "run now".
+- **FR-10 (M)** Schedules per project: daily, weekly, or manual "run now". **Each scan runs every prompt once per engine per market** (no automatic repeats); further runs are triggered manually or by schedule as the operator decides.
 - **FR-11 (M)** A scan expands into one task per prompt × engine and submits to querying.ai; results are collected asynchronously (webhook primary, polling as recovery).
 - **FR-12 (M)** Scan and task status visible in the UI (queued, running, completed, failed, partial) with per-task error reasons.
 - **FR-13 (M)** Automatic retry of transient failures; idempotent submission so a retried job never double-charges.
-- **FR-14 (M)** Cost controls: estimate credits before a scan, per-project and per-workspace monthly credit budget, hard stop when exceeded.
-- **FR-15 (M)** Full raw answer text and sources stored for every task (querying.ai results are retrievable for only 24 hours).
+- **FR-14 (M)** Cost controls: the **agency pays** through one master querying.ai key; usage is attributed to workspace, project and market. Estimate credits before a scan (prompts × engines × markets), set per-project and per-workspace monthly budgets, hard stop when exceeded.
+- **FR-15 (M)** Full raw answer text and sources stored for every task (querying.ai results are retrievable for only 24 hours). **Retained permanently**; there is no automatic expiry.
 
 ### 4.4 Analysis
 - **FR-16 (M)** Per answer: brand mentioned (name, alias or domain), position among tracked brands, domain cited.
@@ -75,10 +77,11 @@ IDs: **M** = MVP, **L** = later.
 | Area | Requirement |
 | - | - |
 | **Security** | querying.ai API key stored server-side only (env/secret store); never sent to the browser. Webhook endpoint verifies querying.ai's signature before trusting a body. Per-tenant isolation via Postgres RLS. HTTPS only; secrets never logged. |
-| **Privacy** | Stored answers may contain third-party content; define retention (default: keep, with per-workspace delete) and data-deletion on client offboarding. |
+| **Privacy / retention** | Answers are kept permanently (decision). Stored answers may contain third-party content. Provide an operator-only manual delete for a workspace on client offboarding or legal request, even though nothing expires automatically. |
+| **Storage growth** | Permanent retention means unbounded growth: roughly 5,000 tasks/day at ~10 KB each is about 50 MB/day, or ~18 GB/year before indexes. Keep raw JSON in a separate table (compressed or moved to object storage later) so dashboards query only the slim analysis and rollup tables. Monitor DB size. |
 | **Reliability** | No lost results: a scan must settle to completed/partial/failed even if a webhook is missed (reconciliation poller well inside the 24 h retention window). Jobs are idempotent and resumable. |
 | **Performance** | Dashboard loads in under 2 s for 12 months of data on a typical project (pre-aggregated rollups). Scan latency is dominated by the engines (minutes); the UI never blocks on it. |
-| **Scalability** | Initial target: ~20 clients, ~50 prompts each, 5 engines, daily = about 5,000 tasks/day. Must respect querying.ai's plan concurrency limit and the key's daily credit limit by queueing and throttling. |
+| **Scalability** | Initial target: ~20 clients, ~50 prompts each, 5 engines, 1 market each, daily = about 5,000 tasks/day. Every extra market multiplies volume and cost (e.g. 3 GCC markets = 3x). Must respect querying.ai's plan concurrency limit and the key's daily credit limit by queueing and throttling. |
 | **Cost** | Each answer costs 1 to 1.25 credits, so credits are the main variable cost. Budgets and cost estimates are first-class. |
 | **Observability** | Structured logs, error tracking, per-scan metrics (success rate, latency, credits), and a failed-task view. |
 | **Maintainability** | TypeScript throughout, provider abstraction (swap/mix data providers), migrations in version control, CI running lint, typecheck and tests. |
@@ -118,25 +121,35 @@ Risks: provider outage or pricing change (mitigate with the provider abstraction
 ## 8. Core data model (draft)
 
 `agency` → `workspace` → `project` (brand, domains, aliases, country, engines, schedule, budget)
-`project` → `prompt` (text, tags, active) · `competitor` (name, domains)
+`project` → `market` (country code, active) · `prompt` (text, tags, active) · `competitor` (name, domains)
 `scan_run` (project, trigger, status, credits_estimated/actual, started/finished)
-`task` (scan_run, prompt, engine, provider_task_id, status, error, credits)
+`task` (scan_run, prompt, engine, market/country, provider_task_id, status, error, credits)
 `answer` (task, text, raw JSON) → `source` (answer, url, domain, label, position)
 `answer_analysis` (answer, brand_mentioned, rank, domain_cited, competitors_mentioned)
-`daily_rollup` (project, engine, date, mention_rate, citation_rate, avg_rank, n)
+`daily_rollup` (project, engine, market, date, mention_rate, citation_rate, avg_rank, n)
 `membership` (user, workspace, role) · `audit_log`
 
 ## 9. Constraints and assumptions
 
 - Hosting: Vercel (serverless, so no long-running requests) + Supabase. This is why scans must be queued and collected asynchronously, not run inside a request.
 - querying.ai plan limits (concurrency, credits) cap throughput; the dispatcher must be built around them.
+- All engines in scope currently accept any country at the API level (querying.ai capabilities show no unsupported countries for them; Perplexity only rejects CN), so GCC and Southeast Asia are usable. Whether answers are meaningfully localised per engine should be validated with a pilot scan.
+- Bing AI Mode is limited to a short country list (it includes SG but no GCC country), so it is excluded from the MVP engine set.
 - Client billing is out of scope for the MVP; credit cost is tracked, not re-billed.
 
-## 10. Open questions
+## 10. Decisions and open questions
 
-1. Who pays for querying.ai credits: the agency (one key, usage tracked per client)?
-2. Repeat each prompt N times per scan to smooth variance, or one run per scan?
-3. Retention period for stored answers.
-4. Should client viewers be able to edit prompts, or only view?
-5. Branding and white-label needs for client-facing pages.
-6. Target countries/languages beyond US English.
+### Decisions (confirmed)
+1. The **agency pays** for querying.ai credits (single master key; usage tracked per client).
+2. Each prompt is run **once per scan**; re-runs are triggered as required.
+3. Answers are retained **permanently**.
+4. Client viewers are **view-only**.
+5. All pages carry **Vimi branding**; no white-label.
+6. **English only** for the MVP. Target regions: **GCC** and **Southeast Asia**.
+
+### Open questions
+1. Exact launch country list (the GCC and Southeast Asia sets in FR-8 are a proposal).
+2. Should prompts be shared across markets, or written per market (e.g. "best bank in Dubai" vs "best bank in Riyadh")? This affects the prompt model.
+3. Vimi brand assets (logo, colours, fonts) needed for the theme.
+4. Which timezone drives schedules and reporting periods (agency, client or market)?
+5. Which later language comes first (Arabic is the likely candidate for GCC)?
