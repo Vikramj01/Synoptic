@@ -74,6 +74,66 @@ export function validateOptions(opts: BootstrapOptions): void {
   }
 }
 
+export interface KeyInfo {
+  kind: "secret" | "publishable" | "legacy-service-role" | "legacy-anon" | "unknown";
+  /** Project ref embedded in a legacy JWT key, when present. */
+  ref?: string;
+}
+
+/**
+ * Classify a Supabase API key without exposing it. New-style keys are told
+ * apart by prefix; legacy keys are JWTs whose (non-secret) payload carries the
+ * role and project ref. Only the classification is ever returned or printed.
+ */
+export function inspectKey(key: string): KeyInfo {
+  if (key.startsWith("sb_secret_")) return { kind: "secret" };
+  if (key.startsWith("sb_publishable_")) return { kind: "publishable" };
+  const parts = key.split(".");
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+        role?: string;
+        ref?: string;
+      };
+      if (payload.role === "service_role") return { kind: "legacy-service-role", ref: payload.ref };
+      if (payload.role === "anon") return { kind: "legacy-anon", ref: payload.ref };
+    } catch {
+      // fall through to unknown
+    }
+  }
+  return { kind: "unknown" };
+}
+
+/** Throws a plain-English error if the key cannot be the right service-role key. */
+export function checkServiceKey(key: string, projectRef: string): void {
+  if (key !== key.trim() || /["'\s]/.test(key)) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY contains spaces, quotes or line breaks. " +
+        "In .env write it as KEY=value on one line, with no quotes and no spaces around '='.",
+    );
+  }
+  const info = inspectKey(key);
+  if (info.kind === "publishable" || info.kind === "legacy-anon") {
+    throw new Error(
+      "That is the public (anon / publishable) key. Use the SECRET key: in the Supabase " +
+        "dashboard open Project Settings > API Keys and copy the secret / service_role key.",
+    );
+  }
+  if (info.ref && info.ref !== projectRef) {
+    throw new Error(
+      `That key belongs to project "${info.ref}" but SUPABASE_URL is project "${projectRef}". ` +
+        "Copy the key from the project you are bootstrapping.",
+    );
+  }
+  if (info.kind === "unknown") {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is not a recognisable Supabase secret key " +
+        "(expected it to start with 'sb_secret_' or be a long 'eyJ...' token). " +
+        "Check you copied the whole value and that it is not still the placeholder text.",
+    );
+  }
+}
+
 export async function bootstrapOperator(
   ports: BootstrapPorts,
   opts: BootstrapOptions,
@@ -103,7 +163,12 @@ export function supabasePorts(url: string, serviceRoleKey: string): BootstrapPor
   return {
     async findAgencyIdByName(name) {
       const { data, error } = await db.from("agencies").select("id").eq("name", name).limit(2);
-      if (error) throw new Error(`Looking up agency failed: ${error.message}`);
+      if (error) {
+        const hint = /invalid api key/i.test(error.message)
+          ? " (Supabase rejected the key: it may be revoked, truncated, or from another project.)"
+          : "";
+        throw new Error(`Looking up agency failed: ${error.message}${hint}`);
+      }
       if (data.length > 1) {
         throw new Error(`More than one agency is named "${name}"; resolve this by hand.`);
       }
@@ -173,6 +238,8 @@ async function main(): Promise<void> {
     );
   }
 
+  checkServiceKey(key, ref);
+
   const result = await bootstrapOperator(supabasePorts(url, key), {
     agencyName: values.agency,
     email: values.email,
@@ -188,6 +255,6 @@ async function main(): Promise<void> {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
+    process.exitCode = 1; // not process.exit(): avoids a libuv crash on Windows
   });
 }

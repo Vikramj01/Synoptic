@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   bootstrapOperator,
+  checkServiceKey,
+  inspectKey,
   parseProjectRef,
   type BootstrapPorts,
 } from "./bootstrap";
@@ -84,5 +86,34 @@ describe("parseProjectRef", () => {
   });
   it("rejects a malformed URL", () => {
     expect(() => parseProjectRef("not a url")).toThrow(/valid URL/);
+  });
+});
+
+function jwt(role: string, ref: string): string {
+  const payload = Buffer.from(JSON.stringify({ role, ref })).toString("base64url");
+  return `hdr.${payload}.sig`;
+}
+
+describe("service key checks", () => {
+  it("classifies keys without needing the secret", () => {
+    expect(inspectKey("sb_secret_abc").kind).toBe("secret");
+    expect(inspectKey("sb_publishable_abc").kind).toBe("publishable");
+    expect(inspectKey(jwt("service_role", "proj1"))).toEqual({ kind: "legacy-service-role", ref: "proj1" });
+    expect(inspectKey(jwt("anon", "proj1")).kind).toBe("legacy-anon");
+    expect(inspectKey("placeholder").kind).toBe("unknown");
+  });
+
+  it("accepts a secret key and a matching legacy service-role key", () => {
+    expect(() => checkServiceKey("sb_secret_abc", "proj1")).not.toThrow();
+    expect(() => checkServiceKey(jwt("service_role", "proj1"), "proj1")).not.toThrow();
+  });
+
+  it("rejects public keys, wrong-project keys, junk and bad formatting", () => {
+    expect(() => checkServiceKey("sb_publishable_abc", "proj1")).toThrow(/public/);
+    expect(() => checkServiceKey(jwt("anon", "proj1"), "proj1")).toThrow(/public/);
+    expect(() => checkServiceKey(jwt("service_role", "other"), "proj1")).toThrow(/other.*proj1/);
+    expect(() => checkServiceKey("paste your key here", "proj1")).toThrow(/spaces|quotes/);
+    expect(() => checkServiceKey("placeholder", "proj1")).toThrow(/recognisable/);
+    expect(() => checkServiceKey('"sb_secret_abc"', "proj1")).toThrow(/quotes/);
   });
 });
