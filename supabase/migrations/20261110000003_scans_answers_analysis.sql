@@ -24,6 +24,7 @@ create table public.scan_runs (
 );
 create index scan_runs_project_created_idx on public.scan_runs (project_id, created_at desc);
 create index scan_runs_workspace_id_idx on public.scan_runs (workspace_id);
+create index scan_runs_created_by_idx on public.scan_runs (created_by);
 
 -- One row per prompt x engine x market (FR-11).
 create table public.tasks (
@@ -53,6 +54,10 @@ create table public.tasks (
 );
 create index tasks_scan_run_id_idx on public.tasks (scan_run_id);
 create index tasks_workspace_id_idx on public.tasks (workspace_id);
+create index tasks_project_id_idx on public.tasks (project_id, workspace_id);
+create index tasks_prompt_id_idx on public.tasks (prompt_id);
+create index tasks_engine_idx on public.tasks (engine);
+create index tasks_country_idx on public.tasks (country);
 create index tasks_provider_task_id_idx on public.tasks (provider_task_id) where provider_task_id is not null;
 -- Dispatcher / reconciler work queue (DB-backed queue, component 6 and 9).
 create index tasks_open_idx on public.tasks (status, submitted_at)
@@ -74,6 +79,9 @@ create table public.answers (
 );
 create index answers_project_day_idx on public.answers (project_id, answered_at desc);
 create index answers_workspace_id_idx on public.answers (workspace_id);
+create index answers_project_workspace_idx on public.answers (project_id, workspace_id);
+create index answers_engine_idx on public.answers (engine);
+create index answers_country_idx on public.answers (country);
 
 -- Raw provider JSON kept apart so dashboard queries never scan it (storage
 -- growth note: retained permanently, can later be compressed or moved out).
@@ -100,6 +108,7 @@ create table public.sources (
 create index sources_answer_id_idx on public.sources (answer_id);
 create index sources_project_domain_idx on public.sources (project_id, domain);
 create index sources_workspace_id_idx on public.sources (workspace_id);
+create index sources_project_workspace_idx on public.sources (project_id, workspace_id);
 
 create table public.answer_analysis (
   answer_id              uuid primary key references public.answers (id) on delete cascade,
@@ -114,6 +123,7 @@ create table public.answer_analysis (
 );
 create index answer_analysis_project_idx on public.answer_analysis (project_id);
 create index answer_analysis_workspace_id_idx on public.answer_analysis (workspace_id);
+create index answer_analysis_project_workspace_idx on public.answer_analysis (project_id, workspace_id);
 
 -- Pre-aggregated metrics for fast charts (dashboard < 2 s over 12 months).
 -- Counts are stored, rates derived, so periods can be re-aggregated exactly.
@@ -135,6 +145,9 @@ create table public.daily_rollups (
   foreign key (project_id, workspace_id) references public.projects (id, workspace_id) on delete cascade
 );
 create index daily_rollups_workspace_id_idx on public.daily_rollups (workspace_id);
+create index daily_rollups_project_workspace_idx on public.daily_rollups (project_id, workspace_id);
+create index daily_rollups_country_idx on public.daily_rollups (country);
+create index daily_rollups_engine_idx on public.daily_rollups (engine);
 
 -- Credit ledger (FR-14, FR-24). Credits are held on submit, charged on
 -- completion and released on failure, mirroring querying.ai.
@@ -151,6 +164,8 @@ create table public.credit_ledger (
 );
 create index credit_ledger_project_created_idx on public.credit_ledger (project_id, created_at);
 create index credit_ledger_workspace_created_idx on public.credit_ledger (workspace_id, created_at);
+create index credit_ledger_task_id_idx on public.credit_ledger (task_id);
+create index credit_ledger_country_idx on public.credit_ledger (country);
 
 -- Month-to-date spend per project (charged + still-held). RLS applies to the
 -- caller because the view is security_invoker.
