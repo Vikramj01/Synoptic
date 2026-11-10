@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
 import { runScan } from "@/lib/scan";
 import { listScans, saveScan } from "@/lib/store";
 import { ENGINES, type Engine, type ScanInput } from "@/lib/types";
 
+const unauthorized = () => NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
 export async function GET() {
+  if (!(await getCurrentUser())) return unauthorized();
   return NextResponse.json(await listScans());
 }
 
 export async function POST(req: Request) {
+  if (!(await getCurrentUser())) return unauthorized();
   const body = await req.json().catch(() => null);
   const list = (v: unknown) =>
     Array.isArray(v) ? v.map((s) => String(s).trim()).filter(Boolean) : [];

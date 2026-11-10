@@ -14,6 +14,16 @@ npm run dev
 
 Open http://localhost:3000. By default a deterministic mock provider is used so the app works with no API key.
 
+## Authentication
+
+Sign-in is by Supabase magic link (email). Accounts are created by invitation only; the login form never creates one. Everything except `/login` and `/auth/*` requires a session: `src/proxy.ts` redirects signed-out visitors, and `src/lib/auth.ts` (`getCurrentUser`) is the authoritative per-request check used by pages and API routes.
+
+Setup:
+
+1. Copy `.env.example` to `.env` and fill in `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+2. In Supabase, Authentication > URL Configuration: add `http://localhost:3000/auth/callback` (and your deployed URL's `/auth/callback`) to **Redirect URLs**.
+3. Run `npm run bootstrap` once (below) to create the first operator, then sign in at `/login`.
+
 ## Providers
 
 `src/lib/providers/` holds engine providers behind one `EngineProvider` interface.
