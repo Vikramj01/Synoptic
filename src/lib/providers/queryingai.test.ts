@@ -33,6 +33,21 @@ describe("querying.ai adapter", () => {
     expect(calls).toHaveLength(3);
   });
 
+  it("sends the requested market, falling back to the default", async () => {
+    const sent: unknown[] = [];
+    const fetchImpl = (async (_u: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        sent.push(JSON.parse(init.body as string).payload.country);
+        return json(200, { task: { id: "t", status: "QUEUED" } });
+      }
+      return json(200, { task: { id: "t", status: "COMPLETED" }, response: { text: "a" } });
+    }) as unknown as typeof fetch;
+    const p = createQueryingAiProvider({ apiKey: "k", fetchImpl, pollIntervalMs: 1 });
+    await p.query("p", "chatgpt", "AE");
+    await p.query("p", "chatgpt");
+    expect(sent).toEqual(["AE", "US"]);
+  });
+
   it("surfaces failed tasks and missing key", async () => {
     const fetchImpl = (async (_u: string, init?: RequestInit) =>
       init?.method === "POST"

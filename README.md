@@ -12,7 +12,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Open http://localhost:3000. By default a deterministic mock provider is used so the app works with no API key.
+Open http://localhost:3000. By default a deterministic mock provider is used so the app works with no querying.ai key (it needs Supabase; see the setup sections below).
 
 ## Authentication
 
@@ -22,7 +22,8 @@ Setup:
 
 1. Copy `.env.example` to `.env` and fill in `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 2. In Supabase, Authentication > URL Configuration: add `http://localhost:3000/auth/callback` (and your deployed URL's `/auth/callback`) to **Redirect URLs**.
-3. Run `npm run bootstrap` once (below) to create the first operator, then sign in at `/login`.
+3. Add `SUPABASE_SERVICE_ROLE_KEY` to `.env` (server only, never `NEXT_PUBLIC_`). The app uses it solely to write scan results, after checking the user can run scans in that workspace.
+4. Run `npm run bootstrap` once (above) to create the first operator, then sign in at `/login`.
 
 ## Providers
 
@@ -33,11 +34,14 @@ Setup:
 
 ## Layout
 
-- `src/lib/analysis.ts`: mention, rank and citation detection (tested)
-- `src/lib/scan.ts`: runs prompts x engines and summarizes
-- `src/lib/store.ts`: JSON-file persistence (dev only; swap for a database to deploy)
-- `src/app/api/scans`: `GET` history, `POST` run a scan
-- `src/app/page.tsx`: dashboard
+- `supabase/migrations/`: schema, RLS and SQL functions (tenancy, projects, scans, audit log)
+- `src/lib/analysis.ts`: mention, rank and citation detection against a project's brand, aliases, domains and competitors (tested)
+- `src/lib/scan-plan.ts`: job expansion, budget checks, status and concurrency helpers (tested)
+- `src/lib/scans.ts`: runs a project's scan and stores it in `scan_runs`, `tasks`, `answers`, `sources`, `answer_analysis`, `credit_ledger` and `daily_rollups`; reads runs back
+- `src/lib/projects.ts`: workspaces, projects and their configuration (runs as the signed-in user, RLS applies)
+- `src/app/`: `/` project list, `/projects/new`, `/projects/[id]` (config, run scan, history, results), `/login`, `/auth/*`
+
+Scans currently run inside the request. Large scans against a live provider will need the async dispatcher.
 
 ## First-time setup (Supabase)
 

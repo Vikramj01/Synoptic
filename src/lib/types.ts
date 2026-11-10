@@ -28,33 +28,23 @@ export interface EngineAnswer {
   citations: Citation[];
 }
 
-export interface ScanInput {
-  domain: string; // e.g. "example.com"
-  brand: string; // e.g. "Example"
-  competitors: string[]; // brand names
-  prompts: string[];
-  engines: Engine[];
-}
-
-export interface PromptResult {
-  prompt: string;
-  engine: Engine;
-  answer: string;
-  citations: Citation[];
+/** Analysis of one answer against a project's brand, domains and competitors. */
+export interface AnswerAnalysis {
   brandMentioned: boolean;
   /** 1-based rank of brand among all tracked brands by first mention; null if absent. */
   mentionRank: number | null;
   domainCited: boolean;
   competitorsMentioned: string[];
-  error?: string;
 }
 
-export interface Scan {
-  id: string;
-  createdAt: string;
-  input: ScanInput;
-  results: PromptResult[];
-  summary: ScanSummary;
+export interface PromptResult extends AnswerAnalysis {
+  prompt: string;
+  engine: Engine;
+  /** ISO 3166-1 alpha-2 market the prompt was run in. */
+  country: string;
+  answer: string;
+  citations: Citation[];
+  error?: string;
 }
 
 export interface ScanSummary {

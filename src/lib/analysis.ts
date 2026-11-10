@@ -1,10 +1,33 @@
-import type { EngineAnswer, PromptResult, ScanInput, ScanSummary, Engine } from "./types";
+import type { AnswerAnalysis, Citation, EngineAnswer, PromptResult, ScanSummary } from "./types";
+
+/** What an answer is analysed against: one project's brand, domains and competitors. */
+export interface AnalysisTarget {
+  brand: string;
+  /** Aliases and misspellings of the brand, any script. */
+  aliases: string[];
+  /** Client domains incl. subdomains, e.g. "shop.example.com". */
+  domains: string[];
+  competitors: { name: string; aliases?: string[]; domains?: string[] }[];
+}
+
+export type DomainRole = "client" | "competitor" | "other";
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * First position of `term` in `text`, or -1. Uses Unicode-aware boundaries so
+ * Arabic/Thai aliases work (a plain \b only understands ASCII word characters).
+ */
 function firstIndex(text: string, term: string): number {
-  const m = new RegExp(`\\b${esc(term)}\\b`, "i").exec(text);
+  const t = term.trim();
+  if (!t) return -1;
+  const m = new RegExp(`(?<![\\p{L}\\p{N}_])${esc(t)}(?![\\p{L}\\p{N}_])`, "iu").exec(text);
   return m ? m.index : -1;
+}
+
+function earliest(text: string, terms: string[]): number {
+  const hits = terms.map((t) => firstIndex(text, t)).filter((i) => i >= 0);
+  return hits.length ? Math.min(...hits) : -1;
 }
 
 export function normalizeDomain(input: string): string {
@@ -20,42 +43,53 @@ export function citationMatchesDomain(url: string, domain: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
     const d = normalizeDomain(domain);
-    return host === d || host.endsWith(`.${d}`);
+    return !!d && (host === d || host.endsWith(`.${d}`));
   } catch {
     return false;
   }
 }
 
-export function analyzeAnswer(
-  input: ScanInput,
-  prompt: string,
-  engine: Engine,
-  raw: EngineAnswer,
-): PromptResult {
+/** Hostname of a URL without "www.", or "" if it is not a valid URL. */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+/** Is a cited URL the client's, a tracked competitor's, or neither? */
+export function classifySource(url: string, target: AnalysisTarget): DomainRole {
+  if (target.domains.some((d) => citationMatchesDomain(url, d))) return "client";
+  if (target.competitors.some((c) => (c.domains ?? []).some((d) => citationMatchesDomain(url, d)))) {
+    return "competitor";
+  }
+  return "other";
+}
+
+export function analyze(target: AnalysisTarget, raw: EngineAnswer): AnswerAnalysis {
   const { answer, citations } = raw;
-  const brandIdx = firstIndex(answer, input.brand);
-  const domainInText = firstIndex(answer, normalizeDomain(input.domain)) >= 0;
+  const brandIdx = earliest(answer, [target.brand, ...target.aliases]);
+  const domainInText = earliest(answer, target.domains.map(normalizeDomain)) >= 0;
   const brandMentioned = brandIdx >= 0 || domainInText;
 
-  const competitorIdx = input.competitors
-    .map((name) => ({ name, idx: firstIndex(answer, name) }))
+  const competitorHits = target.competitors
+    .map((c) => ({ name: c.name, idx: earliest(answer, [c.name, ...(c.aliases ?? [])]) }))
     .filter((c) => c.idx >= 0);
 
   let mentionRank: number | null = null;
   if (brandMentioned) {
     const brandPos = brandIdx >= 0 ? brandIdx : 0;
-    mentionRank = 1 + competitorIdx.filter((c) => c.idx < brandPos).length;
+    mentionRank = 1 + competitorHits.filter((c) => c.idx < brandPos).length;
   }
 
   return {
-    prompt,
-    engine,
-    answer,
-    citations,
     brandMentioned,
     mentionRank,
-    domainCited: citations.some((c) => citationMatchesDomain(c.url, input.domain)),
-    competitorsMentioned: competitorIdx.map((c) => c.name),
+    domainCited: citations.some((c: Citation) =>
+      target.domains.some((d) => citationMatchesDomain(c.url, d)),
+    ),
+    competitorsMentioned: competitorHits.map((c) => c.name),
   };
 }
 

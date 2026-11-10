@@ -70,7 +70,7 @@ export function createQueryingAiProvider(opts: QueryingAiOptions = {}): EnginePr
   }
 
   return {
-    async query(prompt, engine) {
+    async query(prompt, engine, countryOverride) {
       if (!apiKey) throw new Error("QUERYING_API_KEY is not set");
 
       // Submit, retrying on 429/503 which carry transient backpressure.
@@ -78,7 +78,7 @@ export function createQueryingAiProvider(opts: QueryingAiOptions = {}): EnginePr
       for (let attempt = 0; attempt < 4 && !id; attempt++) {
         const { status, body } = await call("/v1/async/task", {
           method: "POST",
-          body: JSON.stringify({ taskType: TASK_TYPES[engine], payload: { prompt, country } }),
+          body: JSON.stringify({ taskType: TASK_TYPES[engine], payload: { prompt, country: countryOverride ?? country } }),
         });
         if (status === 429 || status === 503) {
           await sleep(Math.min(2 ** attempt * 1000, 10_000));
