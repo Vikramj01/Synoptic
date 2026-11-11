@@ -34,8 +34,8 @@ function builder(table: string) {
       else if (s.op === "select" && table === "workspaces") out = { data: { monthly_credit_budget: h.workspaceBudget }, error: null };
       else if (s.op === "select" && table === "project_month_usage") out = { data: h.usage, error: null };
       else if (s.op === "select" && table === "tasks") {
-        const inserted = h.ops.find((o) => o.table === "tasks" && o.op === "insert")?.payload as { id: string; country: string }[] | undefined;
-        out = { data: (inserted ?? []).map((t) => ({ id: t.id, country: t.country })), error: null };
+        const inserted = h.ops.find((o) => o.table === "tasks" && o.op === "insert")?.payload as { id: string; country: string; credits_estimated: number }[] | undefined;
+        out = { data: (inserted ?? []).map((t) => ({ id: t.id, country: t.country, credits_estimated: t.credits_estimated })), error: null };
       }
       return Promise.resolve(out).then(res, rej);
     },
@@ -122,11 +122,14 @@ describe("runProjectScan", () => {
     expect(count("hold")).toBe(2);
     expect(count("release")).toBe(2); // both holds released
     expect(count("charge")).toBe(1); // only the success is charged
-    expect(ledger.find((l) => l.kind === "charge")).toMatchObject({ credits: 1.25 });
+    // chatgpt succeeded (1 credit); gemini (1.25) failed and is only released
+    expect(ledger.find((l) => l.kind === "charge")).toMatchObject({ credits: 1 });
+    expect(ledger.filter((l) => l.kind === "hold").map((l) => l.credits).sort()).toEqual([1, 1.25]);
+    expect(ledger.filter((l) => l.kind === "release").map((l) => l.credits).sort()).toEqual([1, 1.25]);
 
     const tasks = rows("tasks", "upsert");
     expect(tasks.find((t) => t.status === "failed")).toMatchObject({ error: "ENGINE_TIMEOUT", credits_charged: 0 });
-    expect(find("scan_runs", "update")[0].payload).toMatchObject({ status: "partial", credits_actual: 1.25 });
+    expect(find("scan_runs", "update")[0].payload).toMatchObject({ status: "partial", credits_actual: 1 });
   });
 
   it("marks the run failed and skips rollups when every task fails", async () => {
@@ -156,7 +159,7 @@ describe("runProjectScan", () => {
   it("enforces the project budget before creating a run", async () => {
     process.env.PROVIDER = "queryingai";
     h.config = config({ monthlyCreditBudget: 3 });
-    h.usage = [{ credits_committed: 1 }]; // 1 used + 2.5 estimated > 3
+    h.usage = [{ credits_committed: 1 }]; // 1 used + 2.25 estimated > 3
     await expect(runProjectScan("p", "u")).rejects.toThrow(BudgetExceededError);
     expect(find("scan_runs", "insert")).toHaveLength(0);
   });
@@ -170,7 +173,7 @@ describe("runProjectScan", () => {
 
   it("allows a scan that fits the budget", async () => {
     process.env.PROVIDER = "queryingai";
-    h.config = config({ monthlyCreditBudget: 2.5 });
+    h.config = config({ monthlyCreditBudget: 2.25 }); // exactly the estimate: 1 (chatgpt) + 1.25 (gemini)
     expect((await runProjectScan("p", "u")).status).toBe("completed");
   });
 

@@ -41,7 +41,7 @@ Setup:
 - `src/lib/projects.ts`: workspaces, projects and their configuration (runs as the signed-in user, RLS applies)
 - `src/app/`: `/` project list, `/projects/new`, `/projects/[id]` (config, run scan, history, results), `/login`, `/auth/*`
 
-Scans currently run inside the request. Large scans against a live provider will need the async dispatcher.
+Scans currently run inside the request, `QUERYING_CONCURRENCY` queries at a time (default 2, matching querying.ai's Free plan; raise it to your plan's concurrent-task limit). Large scans against a live provider will need the async dispatcher.
 
 ## First-time setup (Supabase)
 

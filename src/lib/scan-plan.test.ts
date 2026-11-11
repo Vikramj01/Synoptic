@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertWithinBudget, BudgetExceededError, buildJobs, creditsPerTask, finalStatus,
-  idempotencyKey, mapPool, monthStartUtc,
+  assertWithinBudget, BudgetExceededError, buildJobs, creditsForTask, estimateCredits, finalStatus,
+  idempotencyKey, mapPool, monthStartUtc, scanConcurrency,
 } from "./scan-plan";
 
 describe("buildJobs", () => {
@@ -34,10 +34,20 @@ describe("buildJobs", () => {
 });
 
 describe("credits and budgets", () => {
-  it("only queryingai costs credits", () => {
-    expect(creditsPerTask("queryingai")).toBe(1.25);
-    expect(creditsPerTask("mock")).toBe(0);
-    expect(creditsPerTask(undefined)).toBe(0);
+  it("prices each engine as querying.ai does, and only querying.ai costs credits", () => {
+    expect(creditsForTask("queryingai", "chatgpt")).toBe(1);
+    expect(creditsForTask("queryingai", "perplexity")).toBe(1);
+    expect(creditsForTask("queryingai", "gemini")).toBe(1.25);
+    expect(creditsForTask("queryingai", "google_ai_mode")).toBe(1.25);
+    expect(creditsForTask("mock", "gemini")).toBe(0);
+    expect(creditsForTask(undefined, "chatgpt")).toBe(0);
+  });
+
+  it("estimates a mixed scan exactly", () => {
+    const jobs = [{ engine: "chatgpt" }, { engine: "chatgpt" }, { engine: "gemini" }, { engine: "perplexity" }] as const;
+    expect(estimateCredits("queryingai", [...jobs])).toBe(4.25);
+    expect(estimateCredits("mock", [...jobs])).toBe(0);
+    expect(estimateCredits("queryingai", [])).toBe(0);
   });
 
   it("has no limit when the budget is null", () => {
@@ -83,5 +93,19 @@ describe("mapPool", () => {
 
   it("handles an empty list", async () => {
     expect(await mapPool([], 3, async (x) => x)).toEqual([]);
+  });
+});
+
+describe("scanConcurrency", () => {
+  it("defaults to the Free plan limit for querying.ai and is wider for the mock", () => {
+    expect(scanConcurrency("queryingai", undefined)).toBe(2);
+    expect(scanConcurrency(undefined, undefined)).toBe(5);
+  });
+  it("honours a valid QUERYING_CONCURRENCY, capped at 50", () => {
+    expect(scanConcurrency("queryingai", "10")).toBe(10);
+    expect(scanConcurrency("queryingai", "500")).toBe(50);
+  });
+  it("ignores junk values", () => {
+    for (const bad of ["", "0", "-3", "abc", "2.5"]) expect(scanConcurrency("queryingai", bad)).toBe(2);
   });
 });

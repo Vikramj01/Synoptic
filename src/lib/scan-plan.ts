@@ -28,11 +28,25 @@ export function idempotencyKey(runId: string, job: ScanJob): string {
   return `${runId}:${job.promptId}:${job.engine}:${job.country}`;
 }
 
-/** querying.ai charges 1 to 1.25 credits per answer; estimate with the worst case. */
-export const QUERYING_AI_MAX_CREDITS_PER_TASK = 1.25;
+/** querying.ai credits per answer, by engine (https://api.querying.ai/v1/capabilities). */
+export const QUERYING_AI_CREDITS: Record<Engine, number> = {
+  chatgpt: 1,
+  perplexity: 1,
+  copilot: 1,
+  meta_ai: 1,
+  gemini: 1.25,
+  google_ai_overviews: 1.25,
+  google_ai_mode: 1.25,
+};
 
-export function creditsPerTask(provider: string | undefined): number {
-  return provider === "queryingai" ? QUERYING_AI_MAX_CREDITS_PER_TASK : 0;
+/** Credits one query costs. Only querying.ai charges; the mock provider is free. */
+export function creditsForTask(provider: string | undefined, engine: Engine): number {
+  return provider === "queryingai" ? QUERYING_AI_CREDITS[engine] : 0;
+}
+
+/** Total estimated credits for a set of jobs, to two decimals. */
+export function estimateCredits(provider: string | undefined, jobs: { engine: Engine }[]): number {
+  return Math.round(jobs.reduce((sum, j) => sum + creditsForTask(provider, j.engine), 0) * 100) / 100;
 }
 
 export class BudgetExceededError extends Error {}
@@ -78,4 +92,16 @@ export async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => 
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return out;
+}
+
+/**
+ * How many provider queries to run at once. querying.ai limits queued + running
+ * tasks per plan (Free 2, Basic 50, Pro 200, ...), and a submit over the limit
+ * is refused. Default to the Free-plan limit; raise QUERYING_CONCURRENCY to
+ * match your plan. The mock provider has no limit.
+ */
+export function scanConcurrency(provider: string | undefined, configured: string | undefined): number {
+  const n = Number(configured);
+  if (configured && Number.isInteger(n) && n >= 1) return Math.min(n, 50);
+  return provider === "queryingai" ? 2 : 5;
 }

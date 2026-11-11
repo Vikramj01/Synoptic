@@ -6,15 +6,13 @@ import { analyze, classifySource, hostOf, summarize, type AnalysisTarget } from 
 import { getProvider } from "./providers";
 import { getProjectConfig, getWorkspaceRole, type ProjectConfig } from "./projects";
 import {
-  assertWithinBudget, buildJobs, creditsPerTask, finalStatus, idempotencyKey,
-  mapPool, monthStartUtc,
+  assertWithinBudget, buildJobs, creditsForTask, estimateCredits, finalStatus, idempotencyKey,
+  mapPool, monthStartUtc, scanConcurrency,
 } from "./scan-plan";
 import type { Engine, PromptResult, ScanSummary } from "./types";
 
 /** A problem the user can act on (shown in the UI), as opposed to an unexpected failure. */
 export class ScanError extends Error {}
-
-const CONCURRENCY = 5;
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -86,8 +84,7 @@ export async function runProjectScan(projectId: string, userId: string): Promise
   }
 
   const admin = createAdminClient();
-  const perTask = creditsPerTask(process.env.PROVIDER);
-  const estimate = Math.round(jobs.length * perTask * 100) / 100;
+  const estimate = estimateCredits(process.env.PROVIDER, jobs);
   await enforceBudgets(admin, config, estimate);
 
   const scanRunId = randomUUID();
@@ -106,27 +103,28 @@ export async function runProjectScan(projectId: string, userId: string): Promise
       id: randomUUID(), scan_run_id: scanRunId, ...base,
       prompt_id: job.promptId, prompt_text: job.promptText, engine: job.engine, country: job.country,
       idempotency_key: idempotencyKey(scanRunId, job), status: "queued", attempts: 0, error: null as string | null,
-      credits_estimated: perTask, credits_charged: 0,
+      credits_estimated: creditsForTask(process.env.PROVIDER, job.engine), credits_charged: 0,
       submitted_at: null as string | null, completed_at: null as string | null,
     },
   }));
 
   try {
     must(await admin.from("tasks").insert(tasks.map((t) => t.row)), "Creating tasks");
-    if (perTask > 0) {
+    const priced = tasks.filter((t) => t.row.credits_estimated > 0);
+    if (priced.length > 0) {
       must(
         await admin.from("credit_ledger").insert(
-          tasks.map((t) => ({ ...base, country: t.job.country, task_id: t.row.id, kind: "hold", credits: perTask })),
+          priced.map((t) => ({ ...base, country: t.job.country, task_id: t.row.id, kind: "hold", credits: t.row.credits_estimated })),
         ),
         "Holding credits",
       );
     }
 
     const provider = getProvider();
-    const outcomes = await mapPool(tasks, CONCURRENCY, async (t) => {
+    const outcomes = await mapPool(tasks, scanConcurrency(process.env.PROVIDER, process.env.QUERYING_CONCURRENCY), async (t) => {
       const submittedAt = new Date().toISOString();
       try {
-        const answer = await provider.query(t.job.promptText, t.job.engine, t.job.country);
+        const answer = await provider.query(t.job.promptText, t.job.engine, t.job.country, { idempotencyKey: t.row.idempotency_key });
         return { t, submittedAt, answer, error: null as string | null };
       } catch (e) {
         return { t, submittedAt, answer: null, error: (e instanceof Error ? e.message : String(e)).slice(0, 500) };
@@ -142,15 +140,16 @@ export async function runProjectScan(projectId: string, userId: string): Promise
     for (const o of outcomes) {
       o.t.row.submitted_at = o.submittedAt;
       o.t.row.completed_at = now;
-      if (perTask > 0) ledger.push({ ...base, country: o.t.job.country, task_id: o.t.row.id, kind: "release", credits: perTask });
+      const credits = o.t.row.credits_estimated;
+      if (credits > 0) ledger.push({ ...base, country: o.t.job.country, task_id: o.t.row.id, kind: "release", credits });
 
       if (o.answer) {
         succeeded++;
         const answerId = randomUUID();
         const a = analyze(target, o.answer);
         o.t.row.status = "completed";
-        o.t.row.credits_charged = perTask;
-        if (perTask > 0) ledger.push({ ...base, country: o.t.job.country, task_id: o.t.row.id, kind: "charge", credits: perTask });
+        o.t.row.credits_charged = credits;
+        if (credits > 0) ledger.push({ ...base, country: o.t.job.country, task_id: o.t.row.id, kind: "charge", credits });
 
         answers.push({ id: answerId, task_id: o.t.row.id, ...base, engine: o.t.job.engine, country: o.t.job.country, text: o.answer.answer, answered_at: now });
         raws.push({ answer_id: answerId, workspace_id: config.workspaceId, raw: o.answer });
@@ -186,28 +185,30 @@ export async function runProjectScan(projectId: string, userId: string): Promise
     const status = finalStatus(succeeded, failed);
     must(
       await admin.from("scan_runs").update({
-        status, credits_actual: Math.round(succeeded * perTask * 100) / 100, finished_at: new Date().toISOString(),
+        status,
+        credits_actual: Math.round(outcomes.reduce((sum, o) => sum + o.t.row.credits_charged, 0) * 100) / 100,
+        finished_at: new Date().toISOString(),
       }).eq("id", scanRunId),
       "Finishing scan run",
     );
     return { scanRunId, status };
   } catch (e) {
-    await abortRun(admin, scanRunId, base, perTask, e instanceof Error ? e.message : String(e));
+    await abortRun(admin, scanRunId, base, e instanceof Error ? e.message : String(e));
     throw e;
   }
 }
 
 /** Best effort: mark the run failed and release credits held for tasks that never settled. */
 async function abortRun(
-  admin: Admin, scanRunId: string, base: { project_id: string; workspace_id: string },
-  perTask: number, message: string,
+  admin: Admin, scanRunId: string, base: { project_id: string; workspace_id: string }, message: string,
 ): Promise<void> {
   try {
-    const open = (await admin.from("tasks").select("id, country").eq("scan_run_id", scanRunId).eq("status", "queued")).data ?? [];
+    const open = (await admin.from("tasks").select("id, country, credits_estimated").eq("scan_run_id", scanRunId).eq("status", "queued")).data ?? [];
     if (open.length) {
       await admin.from("tasks").update({ status: "failed", error: `Aborted: ${message}`.slice(0, 500) }).eq("scan_run_id", scanRunId).eq("status", "queued");
-      if (perTask > 0) {
-        await admin.from("credit_ledger").insert(open.map((t) => ({ ...base, country: t.country, task_id: t.id, kind: "release", credits: perTask })));
+      const held = open.filter((t) => Number(t.credits_estimated) > 0);
+      if (held.length) {
+        await admin.from("credit_ledger").insert(held.map((t) => ({ ...base, country: t.country, task_id: t.id, kind: "release", credits: Number(t.credits_estimated) })));
       }
     }
     await admin.from("scan_runs").update({ status: "failed", finished_at: new Date().toISOString() }).eq("id", scanRunId);
