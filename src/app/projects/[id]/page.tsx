@@ -6,6 +6,7 @@ import { getProjectConfig, getWorkspaceRole } from "@/lib/projects";
 import { buildJobs } from "@/lib/scan-plan";
 import { getMonthUsage, getScanDetail, listScanRuns } from "@/lib/scans";
 import { ScanResults } from "@/components/scan-results";
+import { ReanalyzeForm } from "./reanalyze-form";
 import { RunScanForm } from "./run-scan-form";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -95,6 +96,8 @@ async function ProjectView({ params, searchParams }: { params: Promise<{ id: str
           </ul>
         </section>
       )}
+
+      {canRun && runs.length > 0 && <ReanalyzeForm projectId={config.id} />}
 
       {detail ? (
         <ScanResults summary={detail.summary} results={detail.results} />

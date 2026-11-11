@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { normalizeDomain } from "@/lib/analysis";
 import { requireUser } from "@/lib/auth";
@@ -8,6 +9,7 @@ import {
   type ProjectData,
 } from "@/lib/projects";
 import { BudgetExceededError } from "@/lib/scan-plan";
+import { reanalyzeProject } from "@/lib/reanalysis";
 import { runProjectScan, ScanError } from "@/lib/scans";
 
 export interface ProjectFormValues {
@@ -31,6 +33,11 @@ export interface ProjectFormState {
 }
 
 export interface RunScanState {
+  error?: string;
+}
+
+export interface ReanalyzeState {
+  message?: string;
   error?: string;
 }
 
@@ -156,4 +163,22 @@ export async function runScanAction(projectId: string): Promise<RunScanState> {
     return { error: "The scan failed unexpectedly. Check the server log." };
   }
   redirect(`/projects/${projectId}?run=${scanRunId}`);
+}
+
+/** Free: recomputes analysis of saved answers with the project's current settings. */
+export async function reanalyzeAction(projectId: string): Promise<ReanalyzeState> {
+  await requireUser();
+  try {
+    const r = await reanalyzeProject(projectId);
+    revalidatePath(`/projects/${projectId}`);
+    if (r.answers === 0) return { message: "There are no saved answers to re-analyze yet." };
+    const sources = r.changedSources ? `, ${r.changedSources} source label${r.changedSources === 1 ? "" : "s"} updated` : "";
+    return {
+      message: `Re-analyzed ${r.answers} saved answer${r.answers === 1 ? "" : "s"}: ${r.changedAnswers} changed${sources}. No credits were used.`,
+    };
+  } catch (e) {
+    if (e instanceof ScanError) return { error: e.message };
+    console.error("reanalyzeAction:", e);
+    return { error: "Re-analysis failed unexpectedly. Check the server log." };
+  }
 }
