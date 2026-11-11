@@ -49,7 +49,19 @@ export function ProjectForm({
       <label className="space-y-1 text-sm">Brand name<input name="brandName" className={field} defaultValue={v?.brandName} required /></label>
       <label className="space-y-1 text-sm">Brand aliases / misspellings (one per line)<textarea name="brandAliases" rows={3} className={field} defaultValue={v?.brandAliases} /></label>
       <label className="space-y-1 text-sm">Domains (one per line)<textarea name="domains" rows={3} className={field} defaultValue={v?.domains} placeholder="example.com" /></label>
-      <label className="space-y-1 text-sm">Competitors (one per line)<textarea name="competitors" rows={4} className={field} defaultValue={v?.competitors} /></label>
+      <label className="space-y-1 text-sm">
+        Competitors (one per line)
+        <textarea
+          name="competitors"
+          rows={5}
+          className={`${field} font-mono`}
+          defaultValue={v?.competitors}
+          placeholder={"Midjourney\nIdeogram | ideogram.ai\nAdobe Firefly | firefly.adobe.com, adobe.com | Firefly"}
+        />
+        <span className="block text-xs text-neutral-500">
+          Optional: <code>Name | domains | aliases</code>. Domains label cited sources as competitor.
+        </span>
+      </label>
       <label className="space-y-1 text-sm">Prompts (one per line)<textarea name="prompts" rows={4} className={field} defaultValue={v?.prompts} required /></label>
 
       <fieldset className="sm:col-span-2 space-y-2 text-sm">

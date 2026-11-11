@@ -14,6 +14,19 @@ npm run dev
 
 Open http://localhost:3000. By default a deterministic mock provider is used so the app works with no querying.ai key (it needs Supabase; see the setup sections below).
 
+## Competitors
+
+One per line in the project form. Domains and aliases are optional:
+
+```
+Midjourney
+Ideogram | ideogram.ai
+Adobe Firefly | firefly.adobe.com, adobe.com | Firefly
+Leonardo || Leonardo.ai
+```
+
+Domains label cited sources as "competitor" (otherwise "other"); aliases count as mentions of that competitor. After changing competitors, use **Re-analyze saved answers** on the project page to apply them to past scans for free.
+
 ## Authentication
 
 Sign-in is by Supabase magic link (email). Accounts are created by invitation only; the login form never creates one. Everything except `/login` and `/auth/*` requires a session: `src/proxy.ts` redirects signed-out visitors, and `src/lib/auth.ts` (`getCurrentUser`) is the authoritative per-request check used by pages and API routes.

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { normalizeDomain } from "@/lib/analysis";
 import { requireUser } from "@/lib/auth";
+import { isHostname, parseCompetitorLines } from "@/lib/competitors";
 import {
   createProject, createWorkspace, getOperatorAgencyId, listCountries, listEngines, updateProject,
   type ProjectData,
@@ -43,7 +44,6 @@ export interface ReanalyzeState {
 
 const text = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 const lines = (s: string) => [...new Set(s.split("\n").map((x) => x.trim()).filter(Boolean))];
-const HOSTNAME = /^(?=.{1,253}$)([a-z0-9-]+\.)+[a-z]{2,}$/;
 const permissionDenied = (e: unknown) => /row-level security|permission denied/i.test(e instanceof Error ? e.message : String(e));
 const notFound = (e: unknown) => /project not found/i.test(e instanceof Error ? e.message : String(e));
 
@@ -69,12 +69,15 @@ async function validate(values: ProjectFormValues): Promise<{ error: string } | 
   if (!values.brandName) return { error: "Enter the brand name." };
 
   const domains = lines(values.domains).map(normalizeDomain);
-  const badDomain = domains.find((d) => !HOSTNAME.test(d));
+  const badDomain = domains.find((d) => !isHostname(d));
   if (domains.length === 0) return { error: "Add at least one domain, e.g. example.com." };
   if (badDomain) return { error: `"${badDomain}" is not a valid domain.` };
 
   const prompts = lines(values.prompts);
   if (prompts.length === 0) return { error: "Add at least one prompt." };
+
+  const competitors = parseCompetitorLines(values.competitors);
+  if ("error" in competitors) return { error: competitors.error };
 
   const [engines, countries] = await Promise.all([listEngines(), listCountries()]);
   if (values.engines.length === 0) return { error: "Select at least one engine." };
@@ -91,7 +94,7 @@ async function validate(values: ProjectFormValues): Promise<{ error: string } | 
   return {
     data: {
       name: values.name, brandName: values.brandName, brandAliases: lines(values.brandAliases), domains,
-      engines: values.engines, countries: values.countries, competitors: lines(values.competitors),
+      engines: values.engines, countries: values.countries, competitors: competitors.competitors,
       prompts, monthlyCreditBudget: budget,
     },
   };

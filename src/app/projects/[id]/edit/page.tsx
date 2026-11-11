@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
+import { formatCompetitorLines } from "@/lib/competitors";
 import { getProjectConfig, getWorkspaceRole, listCountries, listEngines } from "@/lib/projects";
 import { updateProjectAction, type ProjectFormValues } from "../../actions";
 import { ProjectForm } from "../../new/project-form";
@@ -50,7 +51,7 @@ async function Editor({ params }: { params: Promise<{ id: string }> }) {
     brandName: config.brandName,
     brandAliases: config.brandAliases.join("\n"),
     domains: config.domains.join("\n"),
-    competitors: config.competitors.map((c) => c.name).join("\n"),
+    competitors: formatCompetitorLines(config.competitors),
     prompts: config.prompts.map((p) => p.text).join("\n"),
     budget: config.monthlyCreditBudget === null ? "" : String(config.monthlyCreditBudget),
     engines: config.engines,

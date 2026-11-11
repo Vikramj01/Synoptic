@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
+import type { CompetitorInput } from "@/lib/competitors";
 import type { Engine } from "@/lib/types";
 
 /** Everything below runs as the signed-in user, so RLS decides what they can see. */
@@ -170,7 +171,7 @@ export interface ProjectData {
   domains: string[];
   engines: string[];
   countries: string[];
-  competitors: string[];
+  competitors: CompetitorInput[];
   prompts: string[];
   /** null = no monthly credit limit. */
   monthlyCreditBudget: number | null;
