@@ -43,6 +43,13 @@ export function extractAnswer(response: TaskResult["response"]): EngineAnswer {
   return { answer: typeof body.text === "string" ? body.text : "", citations };
 }
 
+export const DEFAULT_BASE_URL = "https://api.querying.ai";
+
+/** The API base URL: explicit override, then QUERYING_BASE_URL, then the public default. */
+export function queryingBaseUrl(override?: string): string {
+  return (override ?? process.env.QUERYING_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+}
+
 export interface QueryingAiOptions {
   apiKey?: string;
   baseUrl?: string;
@@ -84,7 +91,7 @@ const waitMs = (attempt: number, retryAfterMs: number | null) =>
 
 export function createQueryingAiProvider(opts: QueryingAiOptions = {}): EngineProvider {
   const apiKey = opts.apiKey ?? process.env.QUERYING_API_KEY;
-  const baseUrl = (opts.baseUrl ?? process.env.QUERYING_BASE_URL ?? "https://api.querying.ai").replace(/\/$/, "");
+  const baseUrl = queryingBaseUrl(opts.baseUrl);
   const country = opts.country ?? process.env.QUERYING_COUNTRY ?? "US";
   const pollMs = opts.pollIntervalMs ?? 3000;
   const timeoutMs = opts.timeoutMs ?? 180_000;

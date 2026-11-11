@@ -310,3 +310,13 @@ export async function getMonthUsage(projectId: string): Promise<number> {
   ) as { credits_committed: number | string | null }[];
   return rows.reduce((s, r) => s + Number(r.credits_committed ?? 0), 0);
 }
+
+/** Credits committed this month across a workspace (all its projects) that the caller can see. */
+export async function getWorkspaceMonthUsage(workspaceId: string): Promise<number> {
+  const supabase = await createClient();
+  const rows = must(
+    await supabase.from("project_month_usage").select("credits_committed").eq("workspace_id", workspaceId).gte("month", monthStartUtc()),
+    "Loading workspace usage",
+  ) as { credits_committed: number | string | null }[];
+  return rows.reduce((s, r) => s + Number(r.credits_committed ?? 0), 0);
+}

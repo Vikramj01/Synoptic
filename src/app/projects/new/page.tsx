@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { getOperatorAgencyId, listCountries, listEngines, listWorkspaces } from "@/lib/projects";
+import { scanPricing } from "@/lib/scan-estimate";
 import { createProjectAction } from "../actions";
 import { ProjectForm } from "./project-form";
 
@@ -29,5 +30,5 @@ async function Form() {
   if (workspaces.length === 0 && !canCreateWorkspace) {
     return <p className="text-sm text-neutral-500">You haven&apos;t been given access to a workspace yet. Ask an operator to add you.</p>;
   }
-  return <ProjectForm action={createProjectAction} workspaces={workspaces} canCreateWorkspace={canCreateWorkspace} engines={engines} countries={countries} />;
+  return <ProjectForm action={createProjectAction} pricing={scanPricing()} workspaces={workspaces} canCreateWorkspace={canCreateWorkspace} engines={engines} countries={countries} />;
 }

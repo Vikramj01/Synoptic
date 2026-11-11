@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertWithinBudget, BudgetExceededError, buildJobs, creditsForTask, estimateCredits, finalStatus,
+  assertWithinBudget, BudgetExceededError, budgetMessage, buildJobs, checkBudget, creditsForTask, estimateCredits, finalStatus,
   idempotencyKey, mapPool, monthStartUtc, scanConcurrency,
 } from "./scan-plan";
 
@@ -107,5 +107,22 @@ describe("scanConcurrency", () => {
   });
   it("ignores junk values", () => {
     for (const bad of ["", "0", "-3", "abc", "2.5"]) expect(scanConcurrency("queryingai", bad)).toBe(2);
+  });
+});
+
+describe("checkBudget", () => {
+  it("returns null without a budget", () => {
+    expect(checkBudget("Project", null, 5, 5)).toBeNull();
+  });
+  it("describes where a scan would leave the budget", () => {
+    expect(checkBudget("Project", 20, 11.25, 10)).toEqual({
+      label: "Project", budget: 20, committed: 11.25, estimate: 10, after: 21.25, remaining: 8.75, exceeded: true,
+    });
+    expect(checkBudget("Project", 20, 10, 10)).toMatchObject({ after: 20, remaining: 10, exceeded: false });
+  });
+  it("uses the same wording as the server-side refusal", () => {
+    const s = checkBudget("Workspace", 5, 0, 12.5)!;
+    expect(budgetMessage(s)).toBe("Workspace monthly credit budget would be exceeded: 0 used + 12.5 estimated > 5 budget.");
+    expect(() => assertWithinBudget("Workspace", 5, 0, 12.5)).toThrow(budgetMessage(s));
   });
 });

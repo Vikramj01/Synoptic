@@ -51,6 +51,37 @@ export function estimateCredits(provider: string | undefined, jobs: { engine: En
 
 export class BudgetExceededError extends Error {}
 
+const round = (n: number) => Math.round(n * 100) / 100;
+
+export interface BudgetStatus {
+  label: string;
+  budget: number;
+  /** Credits already committed this month (charged + held - released). */
+  committed: number;
+  /** What this scan would add. */
+  estimate: number;
+  /** Committed after the scan. */
+  after: number;
+  /** Budget left before the scan (can be negative). */
+  remaining: number;
+  exceeded: boolean;
+}
+
+/** Where a scan would leave a monthly budget; null when there is no budget. */
+export function checkBudget(label: string, budget: number | null, committed: number, estimate: number): BudgetStatus | null {
+  if (budget === null) return null;
+  return {
+    label, budget, committed, estimate,
+    after: round(committed + estimate),
+    remaining: round(budget - committed),
+    exceeded: committed + estimate > budget,
+  };
+}
+
+export function budgetMessage(s: BudgetStatus): string {
+  return `${s.label} monthly credit budget would be exceeded: ${round(s.committed)} used + ${round(s.estimate)} estimated > ${round(s.budget)} budget.`;
+}
+
 /** Hard stop (FR-14): refuse a scan that would push this month's committed credits past the budget. */
 export function assertWithinBudget(
   label: string,
@@ -58,15 +89,9 @@ export function assertWithinBudget(
   committed: number,
   estimate: number,
 ): void {
-  if (budget === null) return;
-  if (committed + estimate > budget) {
-    throw new BudgetExceededError(
-      `${label} monthly credit budget would be exceeded: ${round(committed)} used + ${round(estimate)} estimated > ${round(budget)} budget.`,
-    );
-  }
+  const status = checkBudget(label, budget, committed, estimate);
+  if (status?.exceeded) throw new BudgetExceededError(budgetMessage(status));
 }
-
-const round = (n: number) => Math.round(n * 100) / 100;
 
 export type ScanStatus = "completed" | "partial" | "failed";
 

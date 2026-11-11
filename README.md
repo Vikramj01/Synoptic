@@ -14,6 +14,10 @@ npm run dev
 
 Open http://localhost:3000. By default a deterministic mock provider is used so the app works with no querying.ai key (it needs Supabase; see the setup sections below).
 
+## Credit estimates
+
+Before every scan the project page shows what to expect: queries, credits (per engine, using querying.ai's prices: ChatGPT/Perplexity/Copilot/Meta AI 1 credit, Gemini and the Google engines 1.25), rough time, where the scan leaves the project and workspace monthly budgets, and your live querying.ai balance (read-only; if it can't be reached the estimate still shows). A scan that would exceed a budget or your balance cannot be started. The create/edit form shows the same estimate live as you change prompts, engines and markets. The mock provider is free.
+
 ## Competitors
 
 One per line in the project form. Domains and aliases are optional:

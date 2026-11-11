@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { formatCompetitorLines } from "@/lib/competitors";
+import { scanPricing } from "@/lib/scan-estimate";
 import { getProjectConfig, getWorkspaceRole, listCountries, listEngines } from "@/lib/projects";
 import { updateProjectAction, type ProjectFormValues } from "../../actions";
 import { ProjectForm } from "../../new/project-form";
@@ -71,6 +72,7 @@ async function Editor({ params }: { params: Promise<{ id: string }> }) {
         cancelHref={back}
         engines={engines}
         countries={countries}
+        pricing={scanPricing()}
       />
     </>
   );

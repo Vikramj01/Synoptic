@@ -2,12 +2,15 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
-import { getProjectConfig, getWorkspaceRole } from "@/lib/projects";
-import { buildJobs } from "@/lib/scan-plan";
-import { getMonthUsage, getScanDetail, listScanRuns } from "@/lib/scans";
+import { getProjectConfig, getWorkspaceRole, listWorkspaces } from "@/lib/projects";
+import { getQueryingBalance } from "@/lib/querying-account";
+import { buildJobs, checkBudget } from "@/lib/scan-plan";
+import { estimateFromJobs, evaluateScan, scanPricing } from "@/lib/scan-estimate";
+import { getMonthUsage, getScanDetail, getWorkspaceMonthUsage, listScanRuns } from "@/lib/scans";
 import { ScanResults } from "@/components/scan-results";
 import { ReanalyzeForm } from "./reanalyze-form";
 import { RunScanForm } from "./run-scan-form";
+import { ScanEstimatePanel } from "./scan-estimate-panel";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -35,11 +38,29 @@ async function ProjectView({ params, searchParams }: { params: Promise<{ id: str
   const config = await getProjectConfig(id);
   if (!config) notFound();
 
-  const [role, runs, usage] = await Promise.all([getWorkspaceRole(config.workspaceId), listScanRuns(id), getMonthUsage(id)]);
+  const role = await getWorkspaceRole(config.workspaceId);
   const canRun = role === "operator" || role === "analyst";
+
+  // The estimate panel is only for people who can run scans; viewers skip those lookups.
+  const [runs, usage, workspaceUsage, workspaces, balance] = await Promise.all([
+    listScanRuns(id),
+    getMonthUsage(id),
+    canRun ? getWorkspaceMonthUsage(config.workspaceId) : Promise.resolve(0),
+    canRun ? listWorkspaces() : Promise.resolve([]),
+    canRun ? getQueryingBalance() : Promise.resolve(null),
+  ]);
   const selectedId = run && UUID.test(run) ? run : runs[0]?.id;
   const detail = selectedId ? await getScanDetail(id, selectedId) : null;
-  const tasks = buildJobs(config).length;
+
+  const pricing = scanPricing();
+  const jobs = buildJobs(config);
+  const estimate = estimateFromJobs(pricing, jobs);
+  const tasks = jobs.length;
+  const budgets = [
+    checkBudget("Project", config.monthlyCreditBudget, usage, estimate.credits),
+    checkBudget("Workspace", workspaces.find((w) => w.id === config.workspaceId)?.monthlyCreditBudget ?? null, workspaceUsage, estimate.credits),
+  ];
+  const evaluation = evaluateScan({ estimate, budgets, balance: balance?.remaining ?? null });
 
   return (
     <>
@@ -84,7 +105,17 @@ async function ProjectView({ params, searchParams }: { params: Promise<{ id: str
       </section>
 
       {canRun ? (
-        <RunScanForm projectId={config.id} tasks={tasks} editHref={`/projects/${config.id}/edit`} />
+        <>
+          <ScanEstimatePanel estimate={estimate} pricing={pricing} evaluation={evaluation} budgets={budgets} balance={balance} />
+          <RunScanForm
+            projectId={config.id}
+            queries={tasks}
+            credits={estimate.credits}
+            free={estimate.free}
+            blocked={evaluation.blockers.length > 0}
+            editHref={`/projects/${config.id}/edit`}
+          />
+        </>
       ) : (
         <p className="text-sm text-neutral-500">You have view-only access to this project.</p>
       )}
