@@ -1,9 +1,10 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { runScanAction, type RunScanState } from "../actions";
 
-export function RunScanForm({ projectId, tasks }: { projectId: string; tasks: number }) {
+export function RunScanForm({ projectId, tasks, editHref }: { projectId: string; tasks: number; editHref: string }) {
   const [state, action, pending] = useActionState<RunScanState>(() => runScanAction(projectId), {});
   return (
     <form action={action} className="space-y-2">
@@ -17,6 +18,14 @@ export function RunScanForm({ projectId, tasks }: { projectId: string; tasks: nu
       {state.error && (
         <p role="alert" className="text-sm text-red-600">
           {state.error}
+          {/budget/i.test(state.error) && (
+            <>
+              {" "}
+              <Link href={editHref} className="underline">
+                Edit project
+              </Link>
+            </>
+          )}
         </p>
       )}
     </form>

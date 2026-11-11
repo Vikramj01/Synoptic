@@ -42,14 +42,19 @@ async function ProjectView({ params, searchParams }: { params: Promise<{ id: str
 
   return (
     <>
-      <header className="space-y-1">
-        <Link href="/" className="text-xs text-neutral-500 underline">← All projects</Link>
-        <h1 className="text-2xl font-semibold">{config.name}</h1>
-        <p className="text-sm text-neutral-500">
-          {config.brandName} · {config.domains.join(", ")}
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Link href="/" className="text-xs text-neutral-500 underline">← All projects</Link>
+          <h1 className="text-2xl font-semibold">{config.name}</h1>
+          <p className="text-sm text-neutral-500">
+            {config.brandName} · {config.domains.join(", ")}
+          </p>
+        </div>
         {canRun && (
-          <Link href={`/projects/${config.id}/edit`} className="inline-block text-xs underline">
+          <Link
+            href={`/projects/${config.id}/edit`}
+            className="shrink-0 rounded border border-neutral-400 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
+          >
             Edit project
           </Link>
         )}
@@ -68,7 +73,7 @@ async function ProjectView({ params, searchParams }: { params: Promise<{ id: str
       </section>
 
       {canRun ? (
-        <RunScanForm projectId={config.id} tasks={tasks} />
+        <RunScanForm projectId={config.id} tasks={tasks} editHref={`/projects/${config.id}/edit`} />
       ) : (
         <p className="text-sm text-neutral-500">You have view-only access to this project.</p>
       )}
