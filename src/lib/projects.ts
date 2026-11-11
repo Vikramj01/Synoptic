@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import type { Engine } from "@/lib/types";
 
@@ -174,12 +175,20 @@ export interface NewProjectInput {
   monthlyCreditBudget: number | null;
 }
 
-/** Creates a workspace as the agency operator. Returns its id. */
+/**
+ * Creates a workspace as the agency operator. Returns its id.
+ *
+ * The id is generated here and the insert does NOT ask for the row back:
+ * INSERT ... RETURNING re-checks the SELECT policy on the new row, and that
+ * policy reads the workspace through a helper that cannot yet see a row created
+ * by the statement still running, so the insert would be rejected by RLS.
+ */
 export async function createWorkspace(agencyId: string, name: string): Promise<string> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("workspaces").insert({ agency_id: agencyId, name }).select("id").single();
+  const id = randomUUID();
+  const { error } = await supabase.from("workspaces").insert({ id, agency_id: agencyId, name });
   if (error) fail("Creating workspace", error);
-  return data.id;
+  return id;
 }
 
 /** Atomic project + children creation (SQL function; RLS applies). Returns the project id. */

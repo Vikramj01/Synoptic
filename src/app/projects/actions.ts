@@ -79,14 +79,23 @@ export async function createProjectAction(_prev: ProjectFormState, fd: FormData)
     if (!Number.isFinite(budget) || budget < 0) return fail("The credit budget must be a positive number.");
   }
 
-  let projectId: string;
-  try {
-    let workspaceId = values.workspaceId;
-    if (!workspaceId) {
+  const permissionDenied = (e: unknown) => /row-level security|permission denied/i.test(e instanceof Error ? e.message : String(e));
+
+  let workspaceId = values.workspaceId;
+  if (!workspaceId) {
+    try {
       const agencyId = await getOperatorAgencyId(user.id);
       if (!agencyId) return fail("Only agency operators can create new workspaces.");
       workspaceId = await createWorkspace(agencyId, values.newWorkspace);
+    } catch (e) {
+      if (permissionDenied(e)) return fail("You don't have permission to create workspaces.");
+      console.error("createProjectAction (workspace):", e);
+      return fail("Could not create the workspace. Please try again.");
     }
+  }
+
+  let projectId: string;
+  try {
     projectId = await createProject({
       workspaceId, name: values.name, brandName: values.brandName,
       brandAliases: lines(values.brandAliases), domains,
@@ -94,8 +103,7 @@ export async function createProjectAction(_prev: ProjectFormState, fd: FormData)
       competitors: lines(values.competitors), prompts, monthlyCreditBudget: budget,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/row-level security|permission denied/i.test(msg)) {
+    if (permissionDenied(e)) {
       return fail("You don't have permission to create projects in that workspace.");
     }
     console.error("createProjectAction:", e);
