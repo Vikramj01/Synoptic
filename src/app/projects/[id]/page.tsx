@@ -48,6 +48,11 @@ async function ProjectView({ params, searchParams }: { params: Promise<{ id: str
         <p className="text-sm text-neutral-500">
           {config.brandName} · {config.domains.join(", ")}
         </p>
+        {canRun && (
+          <Link href={`/projects/${config.id}/edit`} className="inline-block text-xs underline">
+            Edit project
+          </Link>
+        )}
       </header>
 
       <section className="grid gap-4 text-sm sm:grid-cols-2">

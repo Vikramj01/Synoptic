@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { normalizeDomain } from "@/lib/analysis";
 import { requireUser } from "@/lib/auth";
 import {
-  createProject, createWorkspace, getOperatorAgencyId, listCountries, listEngines,
+  createProject, createWorkspace, getOperatorAgencyId, listCountries, listEngines, updateProject,
+  type ProjectData,
 } from "@/lib/projects";
 import { BudgetExceededError } from "@/lib/scan-plan";
 import { runProjectScan, ScanError } from "@/lib/scans";
@@ -36,11 +37,11 @@ export interface RunScanState {
 const text = (fd: FormData, key: string) => String(fd.get(key) ?? "").trim();
 const lines = (s: string) => [...new Set(s.split("\n").map((x) => x.trim()).filter(Boolean))];
 const HOSTNAME = /^(?=.{1,253}$)([a-z0-9-]+\.)+[a-z]{2,}$/;
+const permissionDenied = (e: unknown) => /row-level security|permission denied/i.test(e instanceof Error ? e.message : String(e));
+const notFound = (e: unknown) => /project not found/i.test(e instanceof Error ? e.message : String(e));
 
-export async function createProjectAction(_prev: ProjectFormState, fd: FormData): Promise<ProjectFormState> {
-  const user = await requireUser();
-
-  const values: ProjectFormValues = {
+function readValues(fd: FormData): ProjectFormValues {
+  return {
     workspaceId: text(fd, "workspaceId"),
     newWorkspace: text(fd, "newWorkspace"),
     name: text(fd, "name"),
@@ -53,33 +54,50 @@ export async function createProjectAction(_prev: ProjectFormState, fd: FormData)
     engines: fd.getAll("engines").map(String),
     countries: fd.getAll("countries").map(String),
   };
-  const fail = (error: string): ProjectFormState => ({ error, values });
+}
 
-  if (!values.workspaceId && !values.newWorkspace) return fail("Choose a workspace or name a new one.");
-  if (!values.name) return fail("Give the project a name.");
-  if (!values.brandName) return fail("Enter the brand name.");
+/** Validates the fields common to create and edit. */
+async function validate(values: ProjectFormValues): Promise<{ error: string } | { data: ProjectData }> {
+  if (!values.name) return { error: "Give the project a name." };
+  if (!values.brandName) return { error: "Enter the brand name." };
 
   const domains = lines(values.domains).map(normalizeDomain);
   const badDomain = domains.find((d) => !HOSTNAME.test(d));
-  if (domains.length === 0) return fail("Add at least one domain, e.g. example.com.");
-  if (badDomain) return fail(`"${badDomain}" is not a valid domain.`);
+  if (domains.length === 0) return { error: "Add at least one domain, e.g. example.com." };
+  if (badDomain) return { error: `"${badDomain}" is not a valid domain.` };
 
   const prompts = lines(values.prompts);
-  if (prompts.length === 0) return fail("Add at least one prompt.");
+  if (prompts.length === 0) return { error: "Add at least one prompt." };
 
   const [engines, countries] = await Promise.all([listEngines(), listCountries()]);
-  if (values.engines.length === 0) return fail("Select at least one engine.");
-  if (values.countries.length === 0) return fail("Select at least one market.");
-  if (values.engines.some((e) => !engines.some((x) => x.code === e))) return fail("Unknown engine selected.");
-  if (values.countries.some((c) => !countries.some((x) => x.code === c))) return fail("Unknown market selected.");
+  if (values.engines.length === 0) return { error: "Select at least one engine." };
+  if (values.countries.length === 0) return { error: "Select at least one market." };
+  if (values.engines.some((e) => !engines.some((x) => x.code === e))) return { error: "Unknown engine selected." };
+  if (values.countries.some((c) => !countries.some((x) => x.code === c))) return { error: "Unknown market selected." };
 
   let budget: number | null = null;
   if (values.budget) {
     budget = Number(values.budget);
-    if (!Number.isFinite(budget) || budget < 0) return fail("The credit budget must be a positive number.");
+    if (!Number.isFinite(budget) || budget < 0) return { error: "The credit budget must be a positive number." };
   }
 
-  const permissionDenied = (e: unknown) => /row-level security|permission denied/i.test(e instanceof Error ? e.message : String(e));
+  return {
+    data: {
+      name: values.name, brandName: values.brandName, brandAliases: lines(values.brandAliases), domains,
+      engines: values.engines, countries: values.countries, competitors: lines(values.competitors),
+      prompts, monthlyCreditBudget: budget,
+    },
+  };
+}
+
+export async function createProjectAction(_prev: ProjectFormState, fd: FormData): Promise<ProjectFormState> {
+  const user = await requireUser();
+  const values = readValues(fd);
+  const fail = (error: string): ProjectFormState => ({ error, values });
+
+  if (!values.workspaceId && !values.newWorkspace) return fail("Choose a workspace or name a new one.");
+  const checked = await validate(values);
+  if ("error" in checked) return fail(checked.error);
 
   let workspaceId = values.workspaceId;
   if (!workspaceId) {
@@ -96,18 +114,30 @@ export async function createProjectAction(_prev: ProjectFormState, fd: FormData)
 
   let projectId: string;
   try {
-    projectId = await createProject({
-      workspaceId, name: values.name, brandName: values.brandName,
-      brandAliases: lines(values.brandAliases), domains,
-      engines: values.engines, countries: values.countries,
-      competitors: lines(values.competitors), prompts, monthlyCreditBudget: budget,
-    });
+    projectId = await createProject({ workspaceId, ...checked.data });
   } catch (e) {
-    if (permissionDenied(e)) {
-      return fail("You don't have permission to create projects in that workspace.");
-    }
+    if (permissionDenied(e)) return fail("You don't have permission to create projects in that workspace.");
     console.error("createProjectAction:", e);
     return fail("Could not create the project. Please try again.");
+  }
+  redirect(`/projects/${projectId}`);
+}
+
+export async function updateProjectAction(projectId: string, _prev: ProjectFormState, fd: FormData): Promise<ProjectFormState> {
+  await requireUser();
+  const values = readValues(fd);
+  const fail = (error: string): ProjectFormState => ({ error, values });
+
+  const checked = await validate(values);
+  if ("error" in checked) return fail(checked.error);
+
+  try {
+    await updateProject(projectId, checked.data);
+  } catch (e) {
+    if (notFound(e)) return fail("That project no longer exists.");
+    if (permissionDenied(e)) return fail("You don't have permission to edit this project.");
+    console.error("updateProjectAction:", e);
+    return fail("Could not save the changes. Please try again.");
   }
   redirect(`/projects/${projectId}`);
 }
@@ -118,7 +148,10 @@ export async function runScanAction(projectId: string): Promise<RunScanState> {
   try {
     ({ scanRunId } = await runProjectScan(projectId, user.id));
   } catch (e) {
-    if (e instanceof ScanError || e instanceof BudgetExceededError) return { error: e.message };
+    if (e instanceof BudgetExceededError) {
+      return { error: `${e.message} Edit the project to raise the budget, or scan fewer prompts, engines or markets.` };
+    }
+    if (e instanceof ScanError) return { error: e.message };
     console.error("runScanAction:", e);
     return { error: "The scan failed unexpectedly. Check the server log." };
   }

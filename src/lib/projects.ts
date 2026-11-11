@@ -162,8 +162,8 @@ export async function getProjectConfig(projectId: string): Promise<ProjectConfig
   };
 }
 
-export interface NewProjectInput {
-  workspaceId: string;
+/** Everything a user can set on a project (shared by create and edit). */
+export interface ProjectData {
   name: string;
   brandName: string;
   brandAliases: string[];
@@ -172,7 +172,12 @@ export interface NewProjectInput {
   countries: string[];
   competitors: string[];
   prompts: string[];
+  /** null = no monthly credit limit. */
   monthlyCreditBudget: number | null;
+}
+
+export interface NewProjectInput extends ProjectData {
+  workspaceId: string;
 }
 
 /**
@@ -208,4 +213,26 @@ export async function createProject(input: NewProjectInput): Promise<string> {
   });
   if (error) fail("Creating project", error);
   return data as string;
+}
+
+/**
+ * Replaces a project's configuration atomically (SQL function; RLS applies, so
+ * viewers are refused). Past scans are kept: removed prompts/markets are
+ * deactivated, not deleted. A null budget clears the limit.
+ */
+export async function updateProject(projectId: string, input: ProjectData): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("update_project", {
+    p_project: projectId,
+    p_name: input.name,
+    p_brand_name: input.brandName,
+    p_brand_aliases: input.brandAliases,
+    p_domains: input.domains,
+    p_engines: input.engines,
+    p_countries: input.countries,
+    p_competitors: input.competitors,
+    p_prompts: input.prompts,
+    ...(input.monthlyCreditBudget === null ? {} : { p_monthly_credit_budget: input.monthlyCreditBudget }),
+  });
+  if (error) fail("Updating project", error);
 }
