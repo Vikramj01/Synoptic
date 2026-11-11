@@ -51,14 +51,24 @@ async function ProjectView({ params, searchParams }: { params: Promise<{ id: str
             {config.brandName} · {config.domains.join(", ")}
           </p>
         </div>
-        {canRun && (
-          <Link
-            href={`/projects/${config.id}/edit`}
-            className="shrink-0 rounded border border-neutral-400 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
-          >
-            Edit project
-          </Link>
-        )}
+        <div className="flex shrink-0 gap-2">
+          {runs.length > 0 && (
+            <Link
+              href={`/projects/${config.id}/sources`}
+              className="rounded border border-neutral-400 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
+            >
+              Top cited sources
+            </Link>
+          )}
+          {canRun && (
+            <Link
+              href={`/projects/${config.id}/edit`}
+              className="rounded border border-neutral-400 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
+            >
+              Edit project
+            </Link>
+          )}
+        </div>
       </header>
 
       <section className="grid gap-4 text-sm sm:grid-cols-2">
